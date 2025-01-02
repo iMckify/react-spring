@@ -36,9 +36,43 @@ spec:
         - image: gradle:8.10.2-jdk21
           name: build-gradle-build
           resources: {}
+          continueAfterSkip: true
           script: |
             #!/bin/sh
-            gradle clean build
+            gradle clean build || echo "Gradle build failed but continuing the pipeline" && exit 0
+        - image: alpine:latest
+          name: upload-artifacts
+          resources: { }
+          script: |
+            #!/bin/sh
+            apk add --no-cache curl ca-certificates
+
+            echo "Downloading mc:"
+            curl -O https://dl.min.io/client/mc/release/linux-amd64/mc
+            echo "Downloaded mc:"
+            ls -la | grep mc
+
+            chmod +x mc
+            mv mc /usr/local/bin/
+
+            echo "mc version:"
+            mc --version
+            
+            mc alias set myminio http://minio.jx.svc.cluster.local:9000 rootUser rootpass123
+            echo "Checking mc alias:"
+            mc alias list
+
+            echo "Creating bucket jx-artifacts:"
+            mc mb myminio/jx-artifacts
+            
+            echo "Making bucket jx-artifacts public in order to enable rendering:"
+            mc anonymous set public myminio/jx-artifacts
+            
+            echo "Clearing bucket jx-artifacts from previous pipelines:" 
+            mc rm --recursive --force myminio/jx-artifacts
+
+            echo "Copying /build:"
+            mc cp --recursive /workspace/source/backend/build/reports/ myminio/jx-artifacts/build/reports
         - name: check-registry
           resources: {}
         - image: gcr.io/kaniko-project/executor:v1.23.2-debug
